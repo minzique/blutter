@@ -64,7 +64,7 @@ static std::string getFunctionName4Ida(const DartFunction& dartFn, const std::st
 	switch (dartFn.Kind()) {
 	case DartFunction::CONSTRUCTOR: {
 		std::string name = dartFn.IsStatic() ? "factory_ctor" : "ctor";
-		ASSERT(fnName.starts_with(cls_prefix));
+		ASSERT(fnName.starts_with(cls_prefix));`
 		if (fnName[cls_prefix.length()] == '.') {
 			name += '_';
 			name += &fnName[cls_prefix.length() + 1];
@@ -80,6 +80,31 @@ static std::string getFunctionName4Ida(const DartFunction& dartFn, const std::st
 	}
 
 	return prefix + fnName;
+}
+void DartDumper::Dump4bninja(std::filesystem::path outDir){
+	std::filesystem::create_directory(outDir);
+	std::ofstream of((outDir / "addNames.py").string());
+	of << "from binaryninja import *\n";
+	of << "def run_analysis(bv):\n";
+
+
+	for (auto lib : app.libs) {
+		std::string lib_prefix = lib->GetName();
+		for (auto cls : lib->classes) {
+			std::string cls_prefix = cls->Name();
+			for (auto dartFn : cls->Functions()) {
+				const auto ep = dartFn->Address();
+				auto name = getFunctionName4Ida(*dartFn, cls_prefix);
+				of << std::format("\tbv.create_user_function({:#x})\n", ep);
+				of << std::format("\tbv.define_user_symbol(Symbol(SymbolType.FunctionSymbol, {:#x}, \"{}_{}::{}_{:x}\"))\n", ep, lib_prefix, cls_prefix, name.c_str(), ep);
+				if (dartFn->HasMorphicCode()) {
+					of << std::format("\tbv.define_user_symbol(Symbol(SymbolType.FunctionSymbol, {:#x}, \"{}_{}::{}_{:x}_miss\"))\n", dartFn->PayloadAddress(), lib_prefix, cls_prefix, name.c_str(), ep);
+					of << std::format("\tbv.define_user_symbol(Symbol(SymbolType.FunctionSymbol, {:#x}, \"{}_{}::{}_{:x}_check\"))\n", dartFn->MonomorphicAddress(), lib_prefix, cls_prefix, name.c_str(), ep);
+				}
+
+			}
+		}
+	}
 }
 
 void DartDumper::Dump4Ida(std::filesystem::path outDir)
